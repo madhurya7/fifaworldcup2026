@@ -1,4 +1,5 @@
 import { getSchedule } from "@/lib/data";
+import { LIVE_REVALIDATE_SECONDS } from "@/lib/footballData";
 import Navbar from "@/components/Navbar";
 import Hero from "@/components/Hero";
 import TodaysMatches from "@/components/TodaysMatches";
@@ -10,9 +11,9 @@ import Footer from "@/components/Footer";
 import StructuredData from "@/components/StructuredData";
 import EmptyState from "@/components/EmptyState";
 
-// Re-fetch / revalidate the schedule at most once per hour so the site
-// automatically picks up FIFA schedule changes without a redeploy.
-export const revalidate = 3600;
+// Re-fetch / revalidate the schedule frequently so live scores and
+// schedule changes from football-data.org show up automatically.
+export const revalidate = LIVE_REVALIDATE_SECONDS;
 
 export default async function HomePage() {
   let schedule;

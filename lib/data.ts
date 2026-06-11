@@ -1,6 +1,7 @@
 import { Match, ScheduleData, Stage } from "./types";
 import { team, tbd, GROUPS } from "./teams";
 import { VENUES } from "./venues";
+import { fetchFootballDataSchedule, LIVE_REVALIDATE_SECONDS } from "./footballData";
 
 /**
  * ---------------------------------------------------------------------------
@@ -10,19 +11,18 @@ import { VENUES } from "./venues";
  * (Group Stage fixtures based on the official FIFA group draw of
  * Dec 5, 2025 and published kickoff schedule; Knockout Stage uses the
  * official bracket structure with placeholder labels until group
- * results are known).
+ * results are known). It is used as a guaranteed-available fallback.
  *
- * To connect a LIVE data source, implement `fetchLiveSchedule()` below to
- * call a provider such as:
- *   - https://www.fifa.com (official fixtures API)
- *   - https://www.football-data.org/documentation/api (free tier)
- *   - https://www.thesportsdb.com/api.php
+ * LIVE DATA: `getSchedule()` first tries football-data.org
+ * (see lib/footballData.ts) for live scores, status, and minute-by-minute
+ * updates. Set FOOTBALL_DATA_API_TOKEN in your environment to enable this
+ * (see .env.local.example). If that's unavailable, it tries a generic
+ * WORLD_CUP_DATA_URL JSON endpoint. If both fail, it falls back to the
+ * seed data below so the site never breaks.
  *
  * `getSchedule()` is called from Server Components with Next.js fetch
- * caching/revalidation (see app/page.tsx, revalidate = 3600s), so once a
- * live source is wired up the whole site refreshes automatically every
- * hour without a redeploy. If the live fetch fails for any reason, we
- * gracefully fall back to this local seed data so the site never breaks.
+ * caching/revalidation (see app/page.tsx), so the whole site refreshes
+ * automatically (every 60s by default) without a redeploy.
  * ---------------------------------------------------------------------------
  */
 
@@ -225,23 +225,21 @@ const KNOCKOUT_MATCHES: Match[] = [
 const SEED_MATCHES: Match[] = [...GROUP_STAGE_MATCHES, ...KNOCKOUT_MATCHES];
 
 /**
- * Attempts to fetch a live, third-party schedule. Returns null on any
- * failure so callers fall back to the bundled seed data. Swap the URL/
- * mapping below for your chosen provider when you have an API key.
+ * Attempts to fetch a live schedule from a generic JSON endpoint configured
+ * via WORLD_CUP_DATA_URL. Returns null on any failure so callers fall back
+ * to the next source / bundled seed data.
  */
-async function fetchLiveSchedule(): Promise<Match[] | null> {
+async function fetchGenericLiveSchedule(): Promise<Match[] | null> {
   const liveUrl = process.env.WORLD_CUP_DATA_URL;
   if (!liveUrl) return null;
 
   try {
     const res = await fetch(liveUrl, {
-      next: { revalidate: 3600 }, // re-fetch at most once per hour
+      next: { revalidate: LIVE_REVALIDATE_SECONDS },
       headers: { Accept: "application/json" },
     });
     if (!res.ok) return null;
     const json = await res.json();
-    // Expecting the same shape as `Match[]`. Adjust this mapping to match
-    // your provider's response format.
     if (Array.isArray(json)) return json as Match[];
     if (Array.isArray(json?.matches)) return json.matches as Match[];
     return null;
@@ -251,14 +249,34 @@ async function fetchLiveSchedule(): Promise<Match[] | null> {
 }
 
 export async function getSchedule(): Promise<ScheduleData> {
-  const live = await fetchLiveSchedule();
+  // 1. Preferred: football-data.org live schedule (scores, status, minutes).
+  const footballData = await fetchFootballDataSchedule();
+  if (footballData) {
+    return {
+      matches: footballData,
+      venues: VENUES,
+      lastUpdated: new Date().toISOString(),
+      source: "football-data.org (live)",
+    };
+  }
+
+  // 2. Optional: any other generic JSON endpoint the operator configured.
+  const generic = await fetchGenericLiveSchedule();
+  if (generic) {
+    return {
+      matches: generic,
+      venues: VENUES,
+      lastUpdated: new Date().toISOString(),
+      source: process.env.WORLD_CUP_DATA_URL ?? "Live data source",
+    };
+  }
+
+  // 3. Fallback: bundled seed schedule, always available.
   return {
-    matches: live ?? SEED_MATCHES,
+    matches: SEED_MATCHES,
     venues: VENUES,
     lastUpdated: new Date().toISOString(),
-    source: live
-      ? process.env.WORLD_CUP_DATA_URL ?? "Live data source"
-      : "FIFA World Cup 2026 official draw & schedule (seed dataset)",
+    source: "FIFA World Cup 2026 official draw & schedule (seed dataset)",
   };
 }
 

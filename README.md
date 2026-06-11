@@ -56,8 +56,9 @@ components/
   ServiceWorkerRegister.tsx
 
 lib/
-  types.ts      # Match / Venue / Team types
-  data.ts       # Schedule dataset + getSchedule()
+  types.ts        # Match / Venue / Team types (incl. live status & score)
+  data.ts         # getSchedule(): live -> fallback chain -> seed dataset
+  footballData.ts # football-data.org v4 API client (live scores/status)
   teams.ts      # 48 nations: names + flag emojis, group lineups
   venues.ts     # 16 stadiums with timezones
   timezone.ts   # IST formatting & countdown helpers
@@ -65,7 +66,8 @@ lib/
 
 ## 🌐 Data source & automatic updates
 
-`lib/data.ts` ships a curated **seed schedule** for all 104 matches:
+`lib/data.ts` ships a curated **seed schedule** for all 104 matches as a
+guaranteed-available fallback:
 
 - **Group Stage (72 matches)** — based on the official FIFA group draw
   (Dec 5, 2025) and the published kickoff schedule for groups A–L.
@@ -73,26 +75,61 @@ lib/
   Final) with placeholder labels (e.g. *"Winner Group A"*) until group results
   are known.
 
-### Connecting a live data source
+### ✅ Live updates via football-data.org (already wired up)
 
-`getSchedule()` already supports live data. Set an environment variable:
+`lib/footballData.ts` calls the [football-data.org v4 API](https://www.football-data.org/documentation/quickstart):
+
+```
+GET https://api.football-data.org/v4/competitions/WC/matches?season=2026
+Header: X-Auth-Token: <your token>
+```
+
+To enable it, add your token to `.env.local` (already created for you):
+
+```bash
+FOOTBALL_DATA_API_TOKEN=67eced17714b4136a0de9c5087e361a4
+```
+
+This is **read server-side only** (in Server Components / Route Handlers) —
+your token is never sent to the browser. `getSchedule()` will:
+
+1. Call football-data.org for the live World Cup 2026 schedule, including
+   **live status** (`SCHEDULED`, `IN_PLAY`, `PAUSED`, `FINISHED`, …),
+   **current minute**, **live/final scores**, and **team crests**.
+2. Map team names/groups/stages/venues to our internal format
+   (`lib/footballData.ts` includes an alias table for naming differences like
+   "Korea Republic" → "South Korea", "IR Iran" → "Iran", etc.).
+3. If the API call fails, returns no 2026 fixtures yet, or the token is
+   missing/invalid, **fall back automatically** to an optional generic
+   `WORLD_CUP_DATA_URL`, and finally to the bundled seed schedule — the site
+   never breaks.
+
+**Live UI**: `MatchCard` shows a pulsing 🔴 **LIVE** badge with the current
+minute, the live score in place of the countdown, an ✅ **Full Time** badge
+plus final score once a match ends, and real team crest images when provided
+by the API (falling back to flag emojis otherwise).
+
+**Refresh interval**: both the homepage and `/api/matches` revalidate every
+**60 seconds** (`LIVE_REVALIDATE_SECONDS` in `lib/footballData.ts`) — frequent
+enough to feel real-time while staying within football-data.org's free-tier
+limit of 10 requests/minute. Increase this value if you're on a stricter plan.
+
+> ℹ️ Note: football-data.org's free tier may take time to populate full
+> World Cup 2026 fixtures/results as the tournament progresses, and some
+> competitions/seasons require a paid tier. If `competitions/WC/matches`
+> returns no 2026 matches or a 403/429, the app automatically uses the seed
+> schedule — no errors are shown to visitors.
+
+### Connecting a different / additional live data source
+
+You can also set a generic JSON endpoint as a secondary source:
 
 ```bash
 WORLD_CUP_DATA_URL=https://your-api.example.com/worldcup2026/matches
 ```
 
 The endpoint should return JSON shaped like `Match[]` (see `lib/types.ts`) or
-`{ matches: Match[] }`. Good public sources to adapt:
-
-- [football-data.org](https://www.football-data.org/documentation/api)
-- [TheSportsDB](https://www.thesportsdb.com/api.php)
-- FIFA's own published fixtures feed
-
-The page (`app/page.tsx`) and API route (`app/api/matches/route.ts`) both use
-`revalidate = 3600`, so once a live source is configured, the **entire site
-refreshes automatically every hour** — no redeploy needed. If the live fetch
-fails for any reason, the app gracefully **falls back to the bundled seed
-data** so the site never breaks.
+`{ matches: Match[] }`.
 
 ## 🕒 IST timezone handling
 
@@ -114,4 +151,4 @@ formats every date/time using `Intl.DateTimeFormat` with `timeZone:
 - Add/replace fixtures: `lib/data.ts`
 - Add/replace teams or flags: `lib/teams.ts`
 - Add/replace venues: `lib/venues.ts`
-# fifaworldcup2026
+# fifawc2026

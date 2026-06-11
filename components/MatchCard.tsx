@@ -15,6 +15,16 @@ const STAGE_STYLES: Record<string, string> = {
   Final: "bg-wc-gold/20 text-amber-600 dark:bg-wc-gold/25 dark:text-wc-gold",
 };
 
+const LIVE_STATUSES = new Set(["IN_PLAY", "PAUSED", "LIVE"]);
+
+function TeamCrest({ flag, crest, name }: { flag: string; crest?: string; name: string }) {
+  if (crest) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={crest} alt={`${name} crest`} className="h-10 w-10 object-contain sm:h-12 sm:w-12" />;
+  }
+  return <span className="text-4xl sm:text-5xl">{flag}</span>;
+}
+
 export default function MatchCard({
   match,
   highlight = false,
@@ -25,8 +35,16 @@ export default function MatchCard({
   const venue = VENUE_MAP[match.venueId];
   const stageLabel = match.group ? `Group ${match.group}` : match.stage;
 
+  const isLive = !!match.status && LIVE_STATUSES.has(match.status);
+  const isFinished = match.status === "FINISHED";
+  const hasScore =
+    match.score && (match.score.home !== null || match.score.away !== null);
+
   const handleShare = async () => {
-    const text = `${match.home.flag} ${match.home.name} vs ${match.away.name} ${match.away.flag}\n📅 ${formatISTDate(
+    const scoreText = hasScore
+      ? ` (${match.score!.home} - ${match.score!.away})`
+      : "";
+    const text = `${match.home.flag} ${match.home.name} vs ${match.away.name}${scoreText} ${match.away.flag}\n📅 ${formatISTDate(
       match.kickoffUTC
     )} 🕒 ${formatISTTime(match.kickoffUTC)} 🏟 ${venue.name} 🏆 ${stageLabel}`;
 
@@ -46,15 +64,25 @@ export default function MatchCard({
     <article
       className={`glass-card flex flex-col gap-4 p-4 sm:p-5 ${
         highlight ? "ring-2 ring-wc-gold/70" : ""
-      }`}
+      } ${isLive ? "ring-2 ring-wc-red/60" : ""}`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className={`pill ${STAGE_STYLES[match.stage] ?? STAGE_STYLES["Group Stage"]}`}>
           🏆 {stageLabel}
         </span>
-        {highlight && (
+        {isLive && (
+          <span className="pill animate-pulse bg-wc-red/15 text-wc-red dark:bg-wc-red/25">
+            🔴 LIVE{match.minute ? ` · ${match.minute}'` : ""}
+          </span>
+        )}
+        {!isLive && highlight && (
           <span className="pill bg-wc-gold/20 text-amber-600 dark:text-wc-gold">
             ⭐ Next Up
+          </span>
+        )}
+        {isFinished && (
+          <span className="pill bg-slate-500/15 text-slate-600 dark:bg-white/10 dark:text-slate-300">
+            ✅ Full Time
           </span>
         )}
         <span className="pill bg-slate-500/10 text-slate-600 dark:bg-white/10 dark:text-slate-300">
@@ -64,17 +92,29 @@ export default function MatchCard({
 
       <div className="flex items-center justify-between gap-2 text-center">
         <div className="flex flex-1 flex-col items-center gap-1">
-          <span className="text-4xl sm:text-5xl">{match.home.flag}</span>
+          <TeamCrest flag={match.home.flag} crest={match.home.crest} name={match.home.name} />
           <span className="text-sm font-semibold sm:text-base">{match.home.name}</span>
         </div>
 
         <div className="flex flex-col items-center gap-1 px-2">
-          <span className="font-display text-lg font-bold text-slate-400 sm:text-xl">VS</span>
-          <CountdownTimer targetUTC={match.kickoffUTC} compact />
+          {isLive || isFinished ? (
+            hasScore ? (
+              <span className="font-display text-2xl font-bold tabular-nums sm:text-3xl">
+                {match.score!.home ?? "-"} : {match.score!.away ?? "-"}
+              </span>
+            ) : (
+              <span className="font-display text-lg font-bold text-slate-400 sm:text-xl">VS</span>
+            )
+          ) : (
+            <>
+              <span className="font-display text-lg font-bold text-slate-400 sm:text-xl">VS</span>
+              <CountdownTimer targetUTC={match.kickoffUTC} compact />
+            </>
+          )}
         </div>
 
         <div className="flex flex-1 flex-col items-center gap-1">
-          <span className="text-4xl sm:text-5xl">{match.away.flag}</span>
+          <TeamCrest flag={match.away.flag} crest={match.away.crest} name={match.away.name} />
           <span className="text-sm font-semibold sm:text-base">{match.away.name}</span>
         </div>
       </div>
